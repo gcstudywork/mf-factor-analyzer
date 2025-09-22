@@ -234,7 +234,7 @@ if 'analyze' in st.session_state and st.session_state['analyze']:
                     ),
                     xaxis=dict(
                         title="Factor",
-                        titlefont=dict(size=16, family="Arial, sans-serif"),
+                        title_font=dict(size=16, family="Arial, sans-serif"),
                         tickfont=dict(size=14, family="Arial, sans-serif")
                     ),
                     yaxis=dict(
@@ -365,12 +365,12 @@ if 'analyze' in st.session_state and st.session_state['analyze']:
                     ),
                     xaxis=dict(
                         title='Date',
-                        titlefont=dict(size=16, family="Arial, sans-serif"),
+                        title_font=dict(size=16, family="Arial, sans-serif"),
                         tickfont=dict(size=12, family="Arial, sans-serif")
                     ),
                     yaxis=dict(
                         title='Excess Return (%)',
-                        titlefont=dict(size=16, family="Arial, sans-serif"),
+                        title_font=dict(size=16, family="Arial, sans-serif"),
                         tickfont=dict(size=12, family="Arial, sans-serif")
                     ),
                     height=400,
