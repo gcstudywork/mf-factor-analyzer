@@ -158,12 +158,26 @@ if 'analyze' in st.session_state and st.session_state['analyze']:
             fund_df = fund_df.dropna().sort_values('date')
             fund_df = fund_df.set_index('date')
             
+            # Filter to selected date range (ensure we only use data within the selected period)
+            fund_df = fund_df[
+                (fund_df.index >= st.session_state['start_date']) & 
+                (fund_df.index <= st.session_state['end_date'])
+            ]
+            
+            if fund_df.empty:
+                st.error("No data available for the selected period after filtering.")
+                st.stop()
+            
             # Fix: Use month-end resampling
             fund_monthly = fund_df.resample('ME').last()
             fund_monthly['returns'] = fund_monthly['nav'].pct_change() * 100
             fund_monthly = fund_monthly.dropna()
             
-            # Fix: Filter factor data to match selected period
+            if fund_monthly.empty:
+                st.error("Insufficient data for analysis after resampling.")
+                st.stop()
+            
+            # Fix: Filter factor data to match selected period (using same datetime type)
             factor_data_period = factor_data[
                 (factor_data.index >= st.session_state['start_date']) & 
                 (factor_data.index <= st.session_state['end_date'])
@@ -412,5 +426,7 @@ if 'analyze' in st.session_state and st.session_state['analyze']:
 
         except Exception as e:
             st.error(f"Error performing analysis: {str(e)}")
+            import traceback
+            st.error(f"Detailed error: {traceback.format_exc()}")
 else:
     st.info("👈 Select a fund from the sidebar to begin analysis")
