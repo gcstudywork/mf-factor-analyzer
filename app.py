@@ -239,7 +239,7 @@ if 'analyze' in st.session_state and st.session_state['analyze']:
                     ),
                     yaxis=dict(
                         title="Coefficient",
-                        titlefont=dict(size=16, family="Arial, sans-serif"),
+                        title_font=dict(size=16, family="Arial, sans-serif"),
                         tickfont=dict(size=14, family="Arial, sans-serif")
                     ),
                     showlegend=False,
