@@ -66,7 +66,7 @@ if selected_name:
         # Initialize India Factor Library
         ifl = IndiaFactorLibrary()
         
-        # Read the Fama-French 6 factors dataset (monthly returns)
+        # Read the Fama-French 6 factors dataset (monthly returns in decimals)
         ff6 = ifl.read('ff6')[0]
         
         # Get fund data
@@ -134,8 +134,11 @@ if selected_name:
         fund_df = fund_df.set_index('date')
         fund_monthly = fund_df.resample('ME').last()
         
-        # Calculate monthly returns
+        # Calculate monthly returns (convert to percentage points for consistency)
         fund_monthly['returns'] = fund_monthly['nav'].pct_change() * 100
+        
+        # Remove any infinite values and drop NA
+        fund_monthly = fund_monthly.replace([np.inf, -np.inf], np.nan)
         fund_monthly = fund_monthly.dropna()
         
         # Check if we have enough data points
@@ -149,6 +152,10 @@ if selected_name:
         # Filter factor data to match selected period
         ff6 = ff6[(ff6.index >= start_date) & (ff6.index <= end_date)]
         
+        # Convert factor data from decimals to percentage points (0.5 → 0.5%)
+        # Since factors are already in percentage terms (0.5 means 0.5%), we keep as is
+        # But ensure consistency with fund returns which are also in percentage points
+        
         merged_data = fund_monthly.merge(ff6, left_index=True, right_index=True, how='inner')
         
         if merged_data.empty:
@@ -160,7 +167,7 @@ if selected_name:
         if n_observations < 36:
             st.warning(f"⚠️ Limited observations: Only {n_observations} overlapping data points (minimum 36 recommended)")
         
-        # Calculate excess returns and prepare for regression
+        # Calculate excess returns (both already in percentage points)
         merged_data['excess_return'] = merged_data['returns'] - merged_data['RF']
         factors = ['MF', 'SMB5', 'HML', 'RMW', 'CMA', 'WML']
         regression_data = merged_data[['excess_return'] + factors].dropna()
@@ -174,14 +181,13 @@ if selected_name:
             st.error("Insufficient data points for meaningful analysis. Please select a longer period.")
             st.stop()
         
-        # Prepare regression data (scale percentages to decimals)
+        # Prepare regression data - NO SCALING needed since both are already in percentage points
         X = regression_data[factors]
         X = sm.add_constant(X)
-        X_scaled = X / 100  # Scale factors to decimals
-        y_scaled = regression_data['excess_return'] / 100  # Scale returns to decimals
+        y = regression_data['excess_return']
         
-        # Perform regression using statsmodels
-        model = sm.OLS(y_scaled, X_scaled).fit()
+        # Perform regression using statsmodels (data already in correct units)
+        model = sm.OLS(y, X).fit()
         
         # Display basic results
         st.subheader("📊 Model Summary")
@@ -192,82 +198,169 @@ if selected_name:
         with col2:
             st.metric("Observations", final_obs)
         with col3:
-            st.metric("Alpha", f"{model.params['const']:.4f}")
+            st.metric("Alpha", f"{model.params['const']:.3f}")
         with col4:
             p_value = model.pvalues['const']
             sig_status = "✅" if p_value < 0.05 else "⚠️" if p_value < 0.1 else "❌"
             st.metric("Alpha Significance", sig_status, f"p={p_value:.3f}")
 
-        # Factor exposures chart
-        st.subheader("📈 Factor Exposures")
+        # Factor exposures chart (matching your image style)
+        st.subheader("Factor Exposures")
         
-        # Get coefficients for factors only
-        factor_coeffs = model.params[1:7]
-        factor_pvalues = model.pvalues[1:7]
+        # Get coefficients and p-values
+        coefficients = model.params
+        pvalues = model.pvalues
         
-        # Create bar chart using plotly graph_objects (to match your original style)
+        # Create significance markers
+        sig_markers = []
+        for pval in pvalues:
+            if pval < 0.01:
+                sig_markers.append('***')
+            elif pval < 0.05:
+                sig_markers.append('**')
+            elif pval < 0.1:
+                sig_markers.append('*')
+            else:
+                sig_markers.append('')
+        
+        # Factor names matching your chart
+        factor_names = ['const<br>(Intercept)', 'MF<br>(Market)', 'SMB5<br>(Size)',
+                       'HML<br>(Value)', 'RMW<br>(Profitability)',
+                       'CMA<br>(Investment)', 'WML<br>(Momentum)']
+        
+        # Colors based on significance (blue for significant, gray for not)
+        colors = ['lightblue' if p < 0.1 else 'lightgray' for p in pvalues]
+        
         fig = go.Figure()
-        
-        # Add bars with color based on significance
-        colors = ['blue' if pval < 0.05 else 'red' for pval in factor_pvalues]
-        
         fig.add_trace(go.Bar(
-            x=factor_coeffs.index,
-            y=factor_coeffs.values,
+            x=factor_names,
+            y=coefficients.values,
             marker_color=colors,
-            text=[f'{coef:.4f}' for coef in factor_coeffs.values],
-            textposition='auto',
+            text=[f"{coef:.2f} {sig}" for coef, sig in zip(coefficients.values, sig_markers)],
+            textposition='outside',
+            textfont=dict(size=12, family="Arial, sans-serif"),
         ))
         
-        fig.add_hline(y=0, line_dash="dash", line_color="black")
         fig.update_layout(
-            title="Factor Coefficients",
-            xaxis_title="Factor",
-            yaxis_title="Exposure",
-            showlegend=False
+            title=dict(
+                text="Factor Exposures",
+                font=dict(size=20, family="Arial, sans-serif")
+            ),
+            xaxis=dict(
+                title="Factor",
+                title_font=dict(size=16, family="Arial, sans-serif"),
+                tickfont=dict(size=12, family="Arial, sans-serif")
+            ),
+            yaxis=dict(
+                title="Coefficient",
+                title_font=dict(size=16, family="Arial, sans-serif"),
+                tickfont=dict(size=12, family="Arial, sans-serif")
+            ),
+            showlegend=False,
+            height=500,
+            plot_bgcolor='white'
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+        
+        # Add significance note
+        fig.add_annotation(
+            text="<i>Significance levels: * p<0.1, ** p<0.05, *** p<0.01</i>",
+            xref="paper", yref="paper",
+            x=0, y=-0.15,
+            showarrow=False,
+            font=dict(size=10, family="Arial, sans-serif", color="gray")
         )
         
-        st.plotly_chart(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Interpretation
-        st.subheader("💡 Key Insights")
+        # Interpretation (matching your image exactly)
+        st.subheader("Interpretation")
         
-        # Market exposure
-        market_beta = model.params['MF']
-        if market_beta > 1.0:
-            st.write(f"• **Market Sensitive**: Moves {market_beta:.2f} times more than the market")
-        elif market_beta > 0.8:
-            st.write(f"• **Market Neutral**: Moves {market_beta:.2f} times with the market")
-        else:
-            st.write(f"• **Market Defensive**: Moves {market_beta:.2f} times less than the market")
+        interpretations = []
         
-        # Check if any factors are significant
-        significant_factors = [factor for factor in factors if model.pvalues[factor] < 0.05]
-        if significant_factors:
-            st.write(f"• **Significant Factors**: {', '.join(significant_factors)}")
+        # R-squared interpretation
+        if model.rsquared < 0.3:
+            interpretations.append(f"The model has limited explanatory power (R² = {model.rsquared:.2f}).")
+        elif model.rsquared < 0.7:
+            interpretations.append(f"The model has moderate explanatory power (R² = {model.rsquared:.2f}).")
         else:
-            st.write("• No factors show statistically significant exposure")
+            interpretations.append(f"The model has strong explanatory power (R² = {model.rsquared:.2f}).")
+        
+        # Alpha interpretation
+        alpha = model.params['const']
+        alpha_pval = model.pvalues['const']
+        if alpha_pval < 0.05:
+            if alpha > 0:
+                interpretations.append(f"The fund shows statistically significant alpha of {alpha:.3f}, suggesting skill or exposure not captured by the known factors.")
+            else:
+                interpretations.append(f"The fund shows statistically significant negative alpha of {alpha:.3f}, suggesting underperformance relative to factor exposures.")
+        else:
+            interpretations.append(f"The fund's alpha ({alpha:.3f}) is not statistically significant, suggesting performance is explained by factor exposures.")
+        
+        # Market factor interpretation (corrected logic)
+        mf_coef = model.params['MF']
+        if mf_coef > 1.2:
+            interpretations.append(f"**Market:** The fund has high sensitivity to how the broader market moves.")
+        elif mf_coef > 0.8:
+            interpretations.append(f"**Market:** The fund moves in line with the broader market.")
+        else:
+            interpretations.append(f"**Market:** The fund has low sensitivity to how the broader market moves.")
+        
+        # Size factor (SMB5)
+        if model.pvalues['SMB5'] < 0.1:
+            if model.params['SMB5'] > 0:
+                interpretations.append(f"**Size Factor (SMB):** The fund favors small-cap stocks—more exposure to firms with smaller market capitalization.")
+            else:
+                interpretations.append(f"**Size Factor (SMB):** The fund favors large-cap stocks—more exposure to firms with larger market capitalization.")
+        
+        # Value factor (HML)
+        if model.pvalues['HML'] < 0.1:
+            if model.params['HML'] > 0:
+                interpretations.append(f"**Value Factor (HML):** The fund tilts toward value stocks—typically those with high book-to-market ratios.")
+            else:
+                interpretations.append(f"**Value Factor (HML):** The fund tilts toward growth stocks—typically those with low book-to-market ratios and high price multiples.")
+        
+        # Profitability factor (RMW)
+        if model.pvalues['RMW'] < 0.1:
+            if model.params['RMW'] > 0:
+                interpretations.append(f"**Profitability Factor (RMW):** The fund is exposed to highly profitable firms.")
+            else:
+                interpretations.append(f"**Profitability Factor (RMW):** The fund is exposed to low profitability or unprofitable firms.")
+        
+        # Investment factor (CMA)
+        if model.pvalues['CMA'] < 0.1:
+            if model.params['CMA'] > 0:
+                interpretations.append(f"**Investment Factor (CMA):** The fund tilts toward conservatively investing firms—those with low investment rates.")
+            else:
+                interpretations.append(f"**Investment Factor (CMA):** The fund tilts toward aggressively investing firms—those that reinvest heavily in expansion.")
+        
+        # Momentum factor (WML)
+        if model.pvalues['WML'] < 0.1:
+            if model.params['WML'] > 0:
+                interpretations.append(f"**Momentum Factor (WML):** The fund has a momentum tilt, favoring stocks that have performed well recently.")
+            else:
+                interpretations.append(f"**Momentum Factor (WML):** The fund has a contrarian tilt, favoring stocks that have performed poorly recently.")
+        
+        for interp in interpretations:
+            st.markdown(f"• {interp}")
 
         # Performance chart
-        st.subheader("📅 Performance Trend")
+        st.subheader("Actual vs Predicted Excess Returns")
         
-        # Calculate predicted returns (scale back to percentages)
-        regression_data['predicted'] = model.predict(X_scaled) * 100
-        
-        # Create line chart
-        performance_df = regression_data[['excess_return', 'predicted']].copy()
+        # Calculate predicted returns
+        regression_data['predicted'] = model.predict(X)
         
         fig_perf = go.Figure()
         fig_perf.add_trace(go.Scatter(
-            x=performance_df.index,
-            y=performance_df['excess_return'],
+            x=regression_data.index,
+            y=regression_data['excess_return'],
             mode='lines',
             name='Actual Excess Return',
             line=dict(color='blue', width=2)
         ))
         fig_perf.add_trace(go.Scatter(
-            x=performance_df.index,
-            y=performance_df['predicted'],
+            x=regression_data.index,
+            y=regression_data['predicted'],
             mode='lines',
             name='Predicted',
             line=dict(color='orange', width=2, dash='dash')
@@ -277,10 +370,11 @@ if selected_name:
             title="Actual vs Predicted Excess Returns",
             xaxis_title="Date",
             yaxis_title="Excess Return (%)",
-            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            height=400
         )
         
-        st.plotly_chart(fig_perf)
+        st.plotly_chart(fig_perf, use_container_width=True)
 
         # Data quality info
         with st.expander("📋 Data Quality Information"):
