@@ -1,8 +1,8 @@
-streamlit==1.29.0
-pandas==2.1.4
-numpy==1.26.2
-requests==2.31.0
-plotly==5.18.0
-statsmodels==0.14.1
-scipy==1.11.4
-indiafactorlibrary==0.0.7
+streamlit
+pandas
+numpy
+requests
+plotly
+statsmodels
+scipy
+indiafactorlibrary
