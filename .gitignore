@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+.streamlit/
+venv/          # This line ignores the virtual environment
+*.egg-info/
+.DS_Store
