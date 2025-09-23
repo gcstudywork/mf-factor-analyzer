@@ -1,0 +1,178 @@
+# Create new file: utils/comparison_utils.py
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+
+def calculate_rolling_returns(nav_data, periods=[12, 24, 36, 60]):
+    """Calculate rolling returns for different periods"""
+    nav_data = nav_data.copy()
+    nav_data['returns'] = nav_data['nav'].pct_change()
+    
+    rolling_data = {}
+    for period in periods:
+        if len(nav_data) >= period:
+            # Calculate rolling annualized returns
+            rolling_returns = nav_data['nav'].pct_change(periods=period).dropna() * 100
+            if len(rolling_returns) > 0:
+                rolling_data[f'{period//12}Y'] = rolling_returns
+    
+    return rolling_data
+
+def calculate_return_distribution(nav_data):
+    """Calculate return distribution across different buckets"""
+    monthly_returns = nav_data['nav'].pct_change().dropna() * 100
+    
+    # Define buckets
+    buckets = [
+        ('< -10%', lambda x: x < -10),
+        ('-10% to 0%', lambda x: (-10 <= x) & (x < 0)),
+        ('0% to 10%', lambda x: (0 <= x) & (x < 10)),
+        ('10% to 15%', lambda x: (10 <= x) & (x < 15)),
+        ('15% to 20%', lambda x: (15 <= x) & (x < 20)),
+        ('20% to 25%', lambda x: (20 <= x) & (x < 25)),
+        ('25% to 35%', lambda x: (25 <= x) & (x < 35)),
+        ('> 35%', lambda x: x >= 35)
+    ]
+    
+    distribution = {}
+    for bucket_name, condition in buckets:
+        count = len(monthly_returns[condition(monthly_returns)])
+        percentage = (count / len(monthly_returns)) * 100 if len(monthly_returns) > 0 else 0
+        distribution[bucket_name] = {
+            'count': count,
+            'percentage': percentage
+        }
+    
+    return distribution
+
+def get_fund_data_with_validation(mf_client, scheme_code, start_date, end_date):
+    """Get fund data with availability validation"""
+    try:
+        nav_data = mf_client.get_scheme_historical_nav(
+            scheme_code,
+            from_date=start_date.strftime('%Y-%m-%d'),
+            to_date=end_date.strftime('%Y-%m-%d')
+        )
+        
+        if not nav_data:
+            return None, "No data available for selected period"
+        
+        fund_df = pd.DataFrame(nav_data)
+        fund_df['date'] = pd.to_datetime(fund_df['date'], format='%d-%m-%Y')
+        fund_df['nav'] = pd.to_numeric(fund_df['nav'], errors='coerce')
+        fund_df = fund_df.dropna().sort_values('date')
+        fund_df = fund_df.set_index('date')
+        
+        # Check data availability for different periods
+        total_months = len(fund_df)
+        availability = {
+            '1Y': total_months >= 12,
+            '2Y': total_months >= 24,
+            '3Y': total_months >= 36,
+            '5Y': total_months >= 60
+        }
+        
+        return fund_df, availability
+        
+    except Exception as e:
+        return None, f"Error fetching data: {str(e)}"
+
+def create_rolling_returns_chart(all_rolling_data, period, colors):
+    """Create rolling returns chart for a specific period"""
+    funds_with_data = [name for name, data in all_rolling_data.items() if period in data]
+    
+    if not funds_with_data:
+        return None
+    
+    fig = go.Figure()
+    
+    for i, fund_name in enumerate(funds_with_data):
+        rolling_returns = all_rolling_data[fund_name][period]
+        fig.add_trace(go.Scatter(
+            x=rolling_returns.index,
+            y=rolling_returns.values,
+            mode='lines',
+            name=fund_name[:30] + "..." if len(fund_name) > 30 else fund_name,
+            line=dict(color=colors[i % len(colors)], width=2)
+        ))
+    
+    fig.update_layout(
+        title=f"{period} Rolling Returns Comparison",
+        xaxis_title="Date",
+        yaxis_title=f"{period} Rolling Return (%)",
+        height=400,
+        hovermode='x unified',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
+
+def create_distribution_chart(all_distributions, colors):
+    """Create return distribution comparison chart"""
+    bucket_names = ['< -10%', '-10% to 0%', '0% to 10%', '10% to 15%', 
+                   '15% to 20%', '20% to 25%', '25% to 35%', '> 35%']
+    
+    fig = go.Figure()
+    
+    for i, (fund_name, distribution) in enumerate(all_distributions.items()):
+        percentages = [distribution[bucket]['percentage'] for bucket in bucket_names]
+        
+        fig.add_trace(go.Bar(
+            name=fund_name[:30] + "..." if len(fund_name) > 30 else fund_name,
+            x=bucket_names,
+            y=percentages,
+            marker_color=colors[i % len(colors)],
+            opacity=0.8
+        ))
+    
+    fig.update_layout(
+        title="Monthly Return Distribution Comparison",
+        xaxis_title="Return Buckets",
+        yaxis_title="Percentage of Months (%)",
+        barmode='group',
+        height=500,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    return fig
+
+def calculate_summary_stats(fund_data):
+    """Calculate summary statistics for all funds"""
+    summary_stats = {}
+    
+    for fund_name, nav_df in fund_data.items():
+        monthly_returns = nav_df['nav'].pct_change().dropna() * 100
+        
+        stats = {
+            'Mean Monthly Return (%)': monthly_returns.mean(),
+            'Std Dev (%)': monthly_returns.std(),
+            'Min Return (%)': monthly_returns.min(),
+            'Max Return (%)': monthly_returns.max(),
+            'Positive Months (%)': (monthly_returns > 0).sum() / len(monthly_returns) * 100,
+            'Sharpe Ratio (Monthly)': monthly_returns.mean() / monthly_returns.std() if monthly_returns.std() > 0 else 0
+        }
+        summary_stats[fund_name] = stats
+    
+    return summary_stats
+
+def generate_insights(summary_stats):
+    """Generate key insights from summary statistics"""
+    insights = []
+    
+    # Best performing fund
+    mean_returns = {name: stats['Mean Monthly Return (%)'] for name, stats in summary_stats.items()}
+    best_performer = max(mean_returns, key=mean_returns.get)
+    insights.append(f"**Highest Average Return:** {best_performer} ({mean_returns[best_performer]:.2f}% monthly)")
+    
+    # Most consistent fund
+    volatilities = {name: stats['Std Dev (%)'] for name, stats in summary_stats.items()}
+    most_consistent = min(volatilities, key=volatilities.get)
+    insights.append(f"**Most Consistent:** {most_consistent} ({volatilities[most_consistent]:.2f}% volatility)")
+    
+    # Best risk-adjusted return
+    sharpe_ratios = {name: stats['Sharpe Ratio (Monthly)'] for name, stats in summary_stats.items()}
+    best_sharpe = max(sharpe_ratios, key=sharpe_ratios.get)
+    insights.append(f"**Best Risk-Adjusted Return:** {best_sharpe} (Sharpe: {sharpe_ratios[best_sharpe]:.3f})")
+    
+    return insights
