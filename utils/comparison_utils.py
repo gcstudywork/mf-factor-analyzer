@@ -49,10 +49,21 @@ def calculate_return_distribution(nav_data):
 def get_fund_data_with_validation(mf_client, scheme_code, start_date, end_date):
     """Get fund data with availability validation"""
     try:
+        # Handle both string and date objects
+        if isinstance(start_date, str):
+            start_date_str = start_date
+        else:
+            start_date_str = start_date.strftime('%Y-%m-%d')
+            
+        if isinstance(end_date, str):
+            end_date_str = end_date
+        else:
+            end_date_str = end_date.strftime('%Y-%m-%d')
+        
         nav_data = mf_client.get_scheme_historical_nav(
             scheme_code,
-            from_date=start_date.strftime('%Y-%m-%d'),
-            to_date=end_date.strftime('%Y-%m-%d')
+            from_date=start_date_str,
+            to_date=end_date_str
         )
         
         if not nav_data:
