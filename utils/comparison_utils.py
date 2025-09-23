@@ -269,3 +269,4 @@ def create_rolling_summary_table(fund_data_dict, rolling_period_months, start_da
     df = df.round(2)
     
     return df
+# End of file
