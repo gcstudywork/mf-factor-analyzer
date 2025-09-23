@@ -469,14 +469,14 @@ with tab2:
                 comp_start_date = st.date_input(
                     "Start Date",
                     value=datetime.now().date() - timedelta(days=1825),  # 5 years
-                    key="comp_start_date"
+                    key="comp_start_date_input"  # Changed key name
                 )
                 comp_end_date = st.date_input(
                     "End Date",
                     value=datetime.now().date(),
-                    key="comp_end_date"
+                    key="comp_end_date_input"  # Changed key name
                 )
-                
+
                 if st.button("Compare Funds", type="primary", use_container_width=True, key="compare_btn"):
                     st.session_state['run_comparison'] = True
                     st.session_state['comp_start_date'] = comp_start_date.strftime('%Y-%m-%d')
