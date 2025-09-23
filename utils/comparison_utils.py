@@ -1,4 +1,3 @@
-# Create new file: utils/comparison_utils.py
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -187,3 +186,86 @@ def generate_insights(summary_stats):
     insights.append(f"**Best Risk-Adjusted Return:** {best_sharpe} (Sharpe: {sharpe_ratios[best_sharpe]:.3f})")
     
     return insights
+
+def calculate_rolling_return_summary(nav_data, rolling_period_months, fund_name):
+    """
+    Calculate rolling return statistics and distribution for a specific rolling period
+    
+    Parameters:
+    nav_data: DataFrame with NAV data
+    rolling_period_months: int (12, 24, 36, 60 for 1Y, 2Y, 3Y, 5Y)
+    fund_name: str
+    
+    Returns:
+    dict with summary statistics and distribution
+    """
+    # Calculate rolling returns (annualized)
+    if len(nav_data) < rolling_period_months:
+        return None
+    
+    # Calculate rolling returns as percentage
+    rolling_returns = nav_data['nav'].pct_change(periods=rolling_period_months).dropna()
+    
+    # Annualize the returns
+    years = rolling_period_months / 12
+    annualized_returns = ((1 + rolling_returns) ** (1/years) - 1) * 100
+    
+    if len(annualized_returns) == 0:
+        return None
+    
+    # Calculate statistics
+    stats = {
+        'Fund Name': fund_name,
+        'Average': annualized_returns.mean(),
+        'Maximum': annualized_returns.max(),
+        'Minimum': annualized_returns.min(),
+    }
+    
+    # Calculate distribution buckets for annualized returns
+    total_observations = len(annualized_returns)
+    
+    distribution = {
+        'Less than 0%': (annualized_returns < 0).sum() / total_observations * 100,
+        '0 - 10%': ((annualized_returns >= 0) & (annualized_returns < 10)).sum() / total_observations * 100,
+        '10 - 20%': ((annualized_returns >= 10) & (annualized_returns < 20)).sum() / total_observations * 100,
+        '20 - 30%': ((annualized_returns >= 20) & (annualized_returns < 30)).sum() / total_observations * 100,
+        'More than 30%': (annualized_returns >= 30).sum() / total_observations * 100,
+    }
+    
+    # Combine stats and distribution
+    result = {**stats, **distribution}
+    
+    return result
+
+def create_rolling_summary_table(fund_data_dict, rolling_period_months, start_date, end_date):
+    """
+    Create summary table for multiple funds
+    
+    Parameters:
+    fund_data_dict: dict of {fund_name: nav_dataframe}
+    rolling_period_months: int (12, 24, 36, 60)
+    start_date, end_date: for display in header
+    
+    Returns:
+    pandas DataFrame
+    """
+    summaries = []
+    
+    for fund_name, nav_df in fund_data_dict.items():
+        summary = calculate_rolling_return_summary(nav_df, rolling_period_months, fund_name)
+        if summary:
+            summaries.append(summary)
+    
+    if not summaries:
+        return None
+    
+    # Create DataFrame
+    df = pd.DataFrame(summaries)
+    
+    # Set Fund Name as index
+    df = df.set_index('Fund Name')
+    
+    # Round to 2 decimal places
+    df = df.round(2)
+    
+    return df

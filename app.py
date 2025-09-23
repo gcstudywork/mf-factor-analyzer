@@ -16,7 +16,9 @@ from utils.comparison_utils import (
     create_rolling_returns_chart,
     create_distribution_chart,
     calculate_summary_stats,
-    generate_insights
+    generate_insights,
+    calculate_rolling_return_summary,
+    create_rolling_summary_table
 )
 
 # Page config
@@ -131,11 +133,10 @@ with tab1:
                             else:
                                 st.success(f"✅ {months_diff:.1f} months of data selected")
 
-                            # Analyze button
                             if st.button("Run Factor Analysis", type="primary", use_container_width=True):
                                 st.session_state['analyze'] = True
-                                st.session_state['start_date'] = start_date
-                                st.session_state['end_date'] = end_date
+                                st.session_state['start_date'] = start_date.strftime('%Y-%m-%d')  # Convert to string
+                                st.session_state['end_date'] = end_date.strftime('%Y-%m-%d')      # Convert to string
                                 st.session_state['scheme_code'] = scheme_code
                                 st.session_state['scheme_name'] = selected_name
             else:
@@ -143,16 +144,15 @@ with tab1:
         else:
             st.error("Failed to load schemes")
 
-    # Main area
     if 'analyze' in st.session_state and st.session_state['analyze']:
         # Perform analysis
         with st.spinner("Performing factor analysis..."):
             try:
-                # Get fund data
+                # Get fund data - dates are already strings now
                 nav_data = mf.get_scheme_historical_nav(
                     st.session_state['scheme_code'],
-                    from_date=st.session_state['start_date'].strftime('%Y-%m-%d'),
-                    to_date=st.session_state['end_date'].strftime('%Y-%m-%d')
+                    from_date=st.session_state['start_date'],    # Already string format
+                    to_date=st.session_state['end_date']         # Already string format
                 )
                 
                 fund_df = pd.DataFrame(nav_data)
@@ -479,8 +479,8 @@ with tab2:
                 
                 if st.button("Compare Funds", type="primary", use_container_width=True, key="compare_btn"):
                     st.session_state['run_comparison'] = True
-                    st.session_state['comp_start_date'] = comp_start_date
-                    st.session_state['comp_end_date'] = comp_end_date
+                    st.session_state['comp_start_date'] = comp_start_date.strftime('%Y-%m-%d')
+                    st.session_state['comp_end_date'] = comp_end_date.strftime('%Y-%m-%d')
 
     # Comparison results
     if 'run_comparison' in st.session_state and st.session_state['run_comparison'] and st.session_state['comparison_funds']:
@@ -563,12 +563,135 @@ with tab2:
                 
                 for insight in insights:
                     st.markdown(f"• {insight}")
-                
-            else:
-                st.error("No valid fund data available for comparison")
-    
-    elif not st.session_state.get('comparison_funds'):
-        st.info("👈 Add funds from the sidebar to start comparison")
-    
-    else:
-        st.info("Select funds and click 'Compare Funds' to begin analysis")
+                # 3. Rolling Return Summary Table
+                st.header("📋 Rolling Return Summary Table")
+
+                if fund_data:
+                    # User controls for summary table
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        rolling_period_selection = st.selectbox(
+                            "Select Rolling Period",
+                            options=['1 Year', '2 Year', '3 Year', '5 Year'],
+                            index=2,  # Default to 3 Year
+                            key="rolling_period_select"
+                        )
+                    
+                    with col2:
+                        # Show the current time horizon (already selected above)
+                        st.write("**Time Horizon:**")
+                        st.write(f"{st.session_state['comp_start_date']} to {st.session_state['comp_end_date']}")
+                    
+                    # Map selection to months
+                    period_mapping = {
+                        '1 Year': 12,
+                        '2 Year': 24, 
+                        '3 Year': 36,
+                        '5 Year': 60
+                    }
+                    
+                    selected_months = period_mapping[rolling_period_selection]
+                    
+                    # Check data availability for selected period
+                    available_funds = {}
+                    for fund_name, nav_df in fund_data.items():
+                        if len(nav_df) >= selected_months:
+                            available_funds[fund_name] = nav_df
+                    
+                    if available_funds:
+                        # Create summary table
+                        summary_df = create_rolling_summary_table(
+                            available_funds, 
+                            selected_months,
+                            st.session_state['comp_start_date'],
+                            st.session_state['comp_end_date']
+                        )
+                        
+                        if summary_df is not None:
+                            # Display the table with custom styling
+                            st.subheader(f"Rolling Return Statistics - {rolling_period_selection}")
+                            
+                            # Create a styled table header info
+                            period_years = selected_months // 12
+                            st.markdown(f"""
+                            <div style="background-color: #4A90E2; color: white; padding: 10px; border-radius: 5px; margin-bottom: 10px;">
+                                <table style="width: 100%; color: white;">
+                                    <tr>
+                                        <td style="text-align: center; font-weight: bold;">{st.session_state['comp_start_date']} to {st.session_state['comp_end_date']}</td>
+                                        <td style="text-align: center; font-weight: bold;">Return Statistics (%)</td>
+                                        <td style="text-align: center; font-weight: bold;">Return Distribution (% of times)</td>
+                                    </tr>
+                                </table>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Split the dataframe for better display
+                            stats_cols = ['Average', 'Maximum', 'Minimum']
+                            dist_cols = ['Less than 0%', '0 - 10%', '10 - 20%', '20 - 30%', 'More than 30%']
+                            
+                            # Create combined display dataframe
+                            display_df = summary_df.copy()
+                            
+                            # Format the dataframe for display
+                            st.dataframe(
+                                display_df,
+                                use_container_width=True,
+                                column_config={
+                                    "Average": st.column_config.NumberColumn(
+                                        "Average",
+                                        help="Average annualized return",
+                                        format="%.2f"
+                                    ),
+                                    "Maximum": st.column_config.NumberColumn(
+                                        "Maximum", 
+                                        help="Maximum annualized return",
+                                        format="%.2f"
+                                    ),
+                                    "Minimum": st.column_config.NumberColumn(
+                                        "Minimum",
+                                        help="Minimum annualized return", 
+                                        format="%.2f"
+                                    ),
+                                    "Less than 0%": st.column_config.NumberColumn(
+                                        "Less than 0%",
+                                        help="Percentage of time with negative returns",
+                                        format="%.2f"
+                                    ),
+                                    "0 - 10%": st.column_config.NumberColumn(
+                                        "0 - 10%",
+                                        help="Percentage of time with 0-10% returns",
+                                        format="%.2f"
+                                    ),
+                                    "10 - 20%": st.column_config.NumberColumn(
+                                        "10 - 20%",
+                                        help="Percentage of time with 10-20% returns",
+                                        format="%.2f"
+                                    ),
+                                    "20 - 30%": st.column_config.NumberColumn(
+                                        "20 - 30%",
+                                        help="Percentage of time with 20-30% returns",
+                                        format="%.2f"
+                                    ),
+                                    "More than 30%": st.column_config.NumberColumn(
+                                        "More than 30%",
+                                        help="Percentage of time with >30% returns",
+                                        format="%.2f"
+                                    ),
+                                }
+                            )
+                            
+                            # Add explanatory note
+                            st.info(f"""
+                            📊 **How to read this table:**
+                            - **Return Statistics**: Average, maximum, and minimum annualized returns over {period_years}-year rolling periods
+                            - **Return Distribution**: Percentage of {period_years}-year periods that fell within each return range
+                            - All returns are annualized for easy comparison across different time periods
+                            """)
+                            
+                        else:
+                            st.error("Unable to calculate rolling returns for selected period")
+                    else:
+                        st.warning(f"No funds have sufficient data for {rolling_period_selection} rolling analysis. Need at least {selected_months} months of data.")
+                else:
+                    st.info("Add funds and run comparison to see rolling return summary")
